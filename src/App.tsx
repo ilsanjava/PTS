@@ -26,11 +26,21 @@ import {
   saveSubmissionToServer,
   syncSubmissionsToServer,
   clearAllSubmissionsServer,
+  deleteSubmissionFromServer,
   fetchRosterFromServer,
   saveRosterToServer,
 } from './utils/storage';
 import { ExamSubmission, RosterItem } from './types';
-import { Send, CheckCircle2, AlertCircle, RefreshCw, Printer } from 'lucide-react';
+import { Send, CheckCircle2, AlertCircle, RefreshCw, Printer, AlertTriangle } from 'lucide-react';
+
+interface SubmittedResultInfo {
+  nama: string;
+  kelas: string;
+  nisn?: string;
+  evalResult: EvaluationResult;
+  answers: Record<number, string>;
+  timestamp: string;
+}
 
 const CLASSES = ['XII TKJ 1', 'XII TKJ 2', 'XII TKJ 3', 'XII TKJ 4', 'XII TKJ 5'];
 
@@ -54,6 +64,7 @@ export default function App() {
   const [googleSheetsStatus, setGoogleSheetsStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [submittedResultInfo, setSubmittedResultInfo] = useState<SubmittedResultInfo | null>(null);
 
   // Load initial persistent storage (Local + Server)
   useEffect(() => {
@@ -158,10 +169,35 @@ export default function App() {
     saveRosterToServer(newRoster);
   };
 
-  // Clear submissions
-  const handleClearSubmissions = () => {
-    clearAllSubmissionsServer();
+  // Clear all submissions
+  const handleClearSubmissions = async () => {
+    await clearAllSubmissionsServer();
     setSubmissions([]);
+    setSubmittedResultInfo(null);
+    setHasSubmitted(false);
+  };
+
+  // Reset single student submission
+  const handleResetSingleSubmission = async (sub: { id?: string; nama: string; kelas: string }) => {
+    await deleteSubmissionFromServer(sub);
+    setSubmissions((prev) =>
+      prev.filter(
+        (s) =>
+          !(
+            (sub.id && s.id === sub.id) ||
+            (s.nama.trim().toLowerCase() === sub.nama.trim().toLowerCase() &&
+              s.kelas.trim().toLowerCase() === sub.kelas.trim().toLowerCase())
+          )
+      )
+    );
+    // If currently active student is the one being reset, also allow them to resubmit
+    if (
+      studentName.trim().toLowerCase() === sub.nama.trim().toLowerCase() &&
+      selectedClass.trim().toLowerCase() === sub.kelas.trim().toLowerCase()
+    ) {
+      setHasSubmitted(false);
+      setSubmittedResultInfo(null);
+    }
   };
 
   // Quick jump to question
@@ -185,6 +221,20 @@ export default function App() {
       return;
     }
 
+    // Strict requirement: 1 student can only fill/submit once
+    const existing = submissions.find(
+      (s) =>
+        s.nama.trim().toLowerCase() === trimmedName.toLowerCase() &&
+        s.kelas.trim().toLowerCase() === selectedClass.trim().toLowerCase()
+    );
+
+    if (existing) {
+      alert(
+        `Perhatian: Siswa atas nama "${trimmedName}" (${selectedClass}) sudah pernah mengirimkan jawaban ujian PTS PKPJ TJKT SMKN 10 Garut pada ${existing.timestamp} (Nilai: ${existing.nilai}).\n\nSesuai ketentuan, setiap siswa hanya diperbolehkan mengisi ujian 1 kali!`
+      );
+      return;
+    }
+
     // Evaluate answers
     const evalRes = evaluateAnswers(answers);
     setEvaluationResult(evalRes);
@@ -200,17 +250,44 @@ export default function App() {
       syncedToGoogleSheets: false,
     };
 
-    // 1. Immediately save to central server and local backup
-    saveSubmissionToServer(submissionPayload);
-    setSubmissions((prev) => [submissionPayload, ...prev]);
+    const currentStudentNisn = roster.find(
+      (r) => r.nama.toLowerCase() === trimmedName.toLowerCase() && r.kelas === selectedClass
+    )?.nisn;
 
+    // Preserve submitted result data for result modal and print view
+    const submittedData: SubmittedResultInfo = {
+      nama: trimmedName,
+      kelas: selectedClass,
+      nisn: currentStudentNisn,
+      evalResult: evalRes,
+      answers: { ...answers },
+      timestamp: submissionPayload.timestamp,
+    };
+    setSubmittedResultInfo(submittedData);
+
+    setIsSubmitting(true);
+    setGoogleSheetsStatus('sending');
+
+    // 1. Immediately save to central server
+    const serverResult = await saveSubmissionToServer(submissionPayload);
+    if (serverResult.alreadySubmitted) {
+      alert(serverResult.message || 'Siswa ini sudah pernah mengisi ujian!');
+      setIsSubmitting(false);
+      return;
+    }
+
+    setSubmissions((prev) => [submissionPayload, ...prev]);
     setHasSubmitted(true);
     setIsResultModalOpen(true);
-    setGoogleSheetsStatus('sending');
-    setIsSubmitting(true);
+
+    // 2. Strict Requirement: Form isian langsung kosong kembali!
+    setAnswers({});
+    clearDraftAnswers();
+    setStudentName('');
+    saveStudentIdentity({ nama: '', kelas: selectedClass });
 
     try {
-      // 2. Send to Google Sheets Apps Script
+      // 3. Send to Google Sheets Apps Script asynchronously
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -242,6 +319,17 @@ export default function App() {
 
   const answeredCount = HOTS_QUESTIONS.filter((q) => (answers[q.id] || '').trim().length > 10).length;
 
+  const currentStudentNisn = roster.find(
+    (r) => r.nama.toLowerCase() === studentName.trim().toLowerCase() && r.kelas === selectedClass
+  )?.nisn;
+
+  const alreadySubmittedRecord = submissions.find(
+    (s) =>
+      studentName.trim() !== '' &&
+      s.nama.trim().toLowerCase() === studentName.trim().toLowerCase() &&
+      s.kelas.trim().toLowerCase() === selectedClass.trim().toLowerCase()
+  );
+
   return (
     <div className="min-h-screen bg-[#f2f5f8] text-slate-800 font-sans pb-16">
       {/* Top Navbar */}
@@ -262,6 +350,7 @@ export default function App() {
             roster={roster}
             onRosterUpdate={handleRosterUpdate}
             onClearSubmissions={handleClearSubmissions}
+            onResetSingleSubmission={handleResetSingleSubmission}
             onLogout={() => setIsTeacherLoggedIn(false)}
             onRefresh={handleRefresh}
             onImportSubmissions={handleImportSubmissions}
@@ -278,6 +367,7 @@ export default function App() {
           onNameChange={handleNameChange}
           roster={roster}
           classes={CLASSES}
+          submissions={submissions}
         />
 
         {/* Exam Navigation Bar */}
@@ -298,18 +388,44 @@ export default function App() {
           </div>
 
           {/* Submit Button */}
-          <div className="mt-8 bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+          <div className="mt-8 bg-white p-5 sm:p-6 rounded-xl border border-slate-200 shadow-xs">
+            {alreadySubmittedRecord && (
+              <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm">
+                  <p className="font-bold">
+                    Perhatian: Siswa Ini Sudah Mengisi Ujian
+                  </p>
+                  <p className="mt-0.5 text-amber-800">
+                    Siswa atas nama <b>{studentName}</b> ({selectedClass}) sudah pernah mengirimkan jawaban ujian pada {alreadySubmittedRecord.timestamp} (Nilai: {alreadySubmittedRecord.nilai}).
+                  </p>
+                  <p className="mt-1 font-semibold text-amber-950">
+                    Setiap siswa hanya diperbolehkan mengisi ujian 1 kali.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               id="btnSubmitAssessment"
               onClick={submitAssessment}
-              disabled={isSubmitting}
-              className="btn-submit w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white font-bold text-base sm:text-lg rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+              disabled={isSubmitting || !!alreadySubmittedRecord}
+              className={`btn-submit w-full py-4 px-6 font-bold text-base sm:text-lg rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                alreadySubmittedRecord
+                  ? 'bg-slate-400 text-slate-100 cursor-not-allowed shadow-none'
+                  : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white hover:shadow-lg disabled:cursor-not-allowed'
+              }`}
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-5 h-5 animate-spin" />
                   <span>Mengirim Jawaban ke Server & Google Sheets...</span>
+                </>
+              ) : alreadySubmittedRecord ? (
+                <>
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Siswa Sudah Mengisi Ujian (Hanya 1 Kali)</span>
                 </>
               ) : (
                 <>
@@ -319,26 +435,31 @@ export default function App() {
               )}
             </button>
             <p className="text-center text-xs text-slate-500 mt-2.5">
-              Klik tombol di atas untuk menganalisis jawaban esai HOTS Anda secara otomatis dan mengirim hasil ke rekap guru.
+              {alreadySubmittedRecord
+                ? 'Sesuai ketentuan, sistem mengunci pengiriman ulang untuk siswa yang sudah menyelesaikan ujian.'
+                : 'Setelah jawaban dikirimkan, nilai langsung dievaluasi otomatis dan formulir isian akan otomatis dikosongkan kembali.'}
             </p>
           </div>
         </form>
 
-        {/* In-page Result Box matching studentResultBox specification */}
-        {hasSubmitted && evaluationResult && (
+        {/* In-page Result Box */}
+        {hasSubmitted && submittedResultInfo && (
           <div
             id="studentResultBox"
             className="mt-8 p-6 bg-sky-50 border-2 border-sky-300 rounded-xl text-center shadow-md animate-in fade-in duration-300"
           >
             <h2 id="studentScoreText" className="text-2xl sm:text-3xl font-black text-sky-900 mb-1">
-              Nilai Akhir HOTS: {evaluationResult.totalScore.toFixed(1)} / 100
+              Nilai Akhir PTS: {submittedResultInfo.evalResult.totalScore.toFixed(1)} / 100
             </h2>
             <p id="studentDetailText" className="text-sm font-semibold text-slate-700 mb-2">
-              Siswa: <b>{studentName}</b> ({selectedClass})
+              Siswa: <b>{submittedResultInfo.nama}</b> ({submittedResultInfo.kelas})
             </p>
-            <p className="text-xs sm:text-sm text-emerald-700 font-bold mb-3 flex items-center justify-center gap-1.5">
+            <p className="text-xs sm:text-sm text-emerald-700 font-bold mb-2 flex items-center justify-center gap-1.5">
               <CheckCircle2 className="w-4 h-4" />
               ✔ Jawaban berhasil tersimpan ke rekap server dan terkirim ke Google Sheets.
+            </p>
+            <p className="text-xs text-sky-800 bg-sky-100 border border-sky-200 py-1.5 px-3 rounded-md max-w-md mx-auto mb-3">
+              Formulir isian ujian telah dikosongkan kembali untuk pengerjaan siswa berikutnya.
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
@@ -363,15 +484,15 @@ export default function App() {
       </main>
 
       {/* Student Result Detailed Modal */}
-      {evaluationResult && (
+      {submittedResultInfo && (
         <StudentResultModal
           isOpen={isResultModalOpen}
           onClose={() => setIsResultModalOpen(false)}
-          studentName={studentName}
-          studentClass={selectedClass}
-          totalScore={evaluationResult.totalScore}
-          scoreDetails={evaluationResult.questionDetails}
-          summaryString={evaluationResult.summaryString}
+          studentName={submittedResultInfo.nama}
+          studentClass={submittedResultInfo.kelas}
+          totalScore={submittedResultInfo.evalResult.totalScore}
+          scoreDetails={submittedResultInfo.evalResult.questionDetails}
+          summaryString={submittedResultInfo.evalResult.summaryString}
           googleSheetsStatus={googleSheetsStatus}
           onPrint={handlePrint}
         />
@@ -389,11 +510,11 @@ export default function App() {
 
       {/* Printable Exam Sheet for window.print() */}
       <PrintExamSheet
-        studentName={studentName}
-        studentClass={selectedClass}
-        studentNisn={roster.find((r) => r.nama.toLowerCase() === studentName.trim().toLowerCase())?.nisn}
-        answers={answers}
-        totalScore={evaluationResult?.totalScore}
+        studentName={submittedResultInfo?.nama || studentName}
+        studentClass={submittedResultInfo?.kelas || selectedClass}
+        studentNisn={submittedResultInfo?.nisn || currentStudentNisn}
+        answers={submittedResultInfo?.answers || answers}
+        totalScore={submittedResultInfo?.evalResult.totalScore ?? evaluationResult?.totalScore}
       />
     </div>
   );

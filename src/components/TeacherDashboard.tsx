@@ -31,7 +31,8 @@ interface TeacherDashboardProps {
   submissions: ExamSubmission[];
   roster: RosterItem[];
   onRosterUpdate: (newRoster: RosterItem[]) => void;
-  onClearSubmissions: () => void;
+  onClearSubmissions: () => void | Promise<void>;
+  onResetSingleSubmission?: (sub: { id?: string; nama: string; kelas: string }) => void | Promise<void>;
   onLogout: () => void;
   onRefresh?: () => Promise<void>;
   onImportSubmissions?: (newSubs: ExamSubmission[]) => Promise<void>;
@@ -46,6 +47,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   roster,
   onRosterUpdate,
   onClearSubmissions,
+  onResetSingleSubmission,
   onLogout,
   onRefresh,
   onImportSubmissions,
@@ -60,6 +62,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedSubmission, setSelectedSubmission] = useState<ExamSubmission | null>(null);
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [pastedText, setPastedText] = useState('');
+
+  // Confirmation modals (without window.confirm)
+  const [isConfirmClearAllOpen, setIsConfirmClearAllOpen] = useState(false);
+  const [studentToReset, setStudentToReset] = useState<ExamSubmission | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Roster Tab confirmation modal states
+  const [studentToDeleteFromRoster, setStudentToDeleteFromRoster] = useState<{ index: number; name: string; kelas: string } | null>(null);
+  const [isResetRosterModalOpen, setIsResetRosterModalOpen] = useState(false);
 
   // Roster Tab states
   const [rosterSearch, setRosterSearch] = useState('');
@@ -351,19 +363,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const handleDeleteStudent = (indexToDelete: number) => {
     const student = roster[indexToDelete];
     if (!student) return;
+    setStudentToDeleteFromRoster({ index: indexToDelete, name: student.nama, kelas: student.kelas });
+  };
 
-    if (confirm(`Apakah Anda yakin ingin menghapus siswa "${student.nama}" (${student.kelas}) dari daftar roster?`)) {
-      const updated = roster.filter((_, idx) => idx !== indexToDelete);
-      onRosterUpdate(updated);
-      setImportStatus(`✔ Berhasil menghapus "${student.nama}" dari roster.`);
-    }
+  const handleExecuteDeleteStudent = () => {
+    if (!studentToDeleteFromRoster) return;
+    const { index, name } = studentToDeleteFromRoster;
+    const updated = roster.filter((_, idx) => idx !== index);
+    onRosterUpdate(updated);
+    setImportStatus(`✔ Berhasil menghapus "${name}" dari roster.`);
+    setStudentToDeleteFromRoster(null);
   };
 
   const handleResetToDefaultRoster = () => {
-    if (confirm('Kembalikan roster ke daftar 75 siswa bawaan SMK XII TKJ (1-5)? Perubahan kustom yang belum diekspor akan digantikan.')) {
-      onRosterUpdate([...INITIAL_ROSTER]);
-      setImportStatus('✔ Roster berhasil dikembalikan ke 75 siswa awal dengan nomor NISN lengkap.');
-    }
+    setIsResetRosterModalOpen(true);
+  };
+
+  const handleExecuteResetDefaultRoster = () => {
+    onRosterUpdate([...INITIAL_ROSTER]);
+    setImportStatus('✔ Roster berhasil dikembalikan ke 75 siswa awal dengan nomor NISN lengkap.');
+    setIsResetRosterModalOpen(false);
   };
 
   // --------------------------------------------------------------------------
@@ -384,15 +403,50 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `Rekap_Ujian_HOTS_QoS_Guru.csv`;
+    link.download = `Rekap_PTS_PKPJ_TJKT_SMKN_10_Garut.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  const handleClearSubmissionsConfirm = () => {
-    if (confirm('Apakah Anda yakin ingin MENGHAPUS SEMUA REKAP NILAI siswa dari halaman dan server?')) {
-      onClearSubmissions();
+  const handleClearSubmissionsClick = () => {
+    setIsConfirmClearAllOpen(true);
+  };
+
+  const handleExecuteClearAll = async () => {
+    try {
+      setIsClearing(true);
+      await onClearSubmissions();
+      setIsConfirmClearAllOpen(false);
+      setSuccessToast('Semua rekap nilai siswa berhasil direset dari server.');
+      setTimeout(() => setSuccessToast(null), 4000);
+    } catch (err) {
+      console.error('Failed to clear submissions:', err);
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  const handleExecuteResetStudent = async () => {
+    if (!studentToReset) return;
+    const studentName = studentToReset.nama;
+    const studentClass = studentToReset.kelas;
+    try {
+      setIsClearing(true);
+      if (onResetSingleSubmission) {
+        await onResetSingleSubmission({
+          id: studentToReset.id,
+          nama: studentToReset.nama,
+          kelas: studentToReset.kelas,
+        });
+      }
+      setStudentToReset(null);
+      setSuccessToast(`Rekap ujian untuk siswa "${studentName}" (${studentClass}) berhasil direset. Siswa dapat mengisi ujian kembali.`);
+      setTimeout(() => setSuccessToast(null), 4500);
+    } catch (err) {
+      console.error('Failed to reset student submission:', err);
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -551,7 +605,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               Panel Guru: Monitoring & Rekap Nilai Siswa
             </h2>
             <p className="text-xs sm:text-sm text-slate-500">
-              Asesmen HOTS MikroTik QoS • Kurikulum Merdeka XII TKJ (1 - 5)
+              Asesmen PTS PKPJ TJKT SMKN 10 Garut • Kurikulum Merdeka XII TKJ (1 - 5)
             </p>
           </div>
         </div>
@@ -746,7 +800,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
               <button
                 type="button"
-                onClick={handleClearSubmissionsConfirm}
+                onClick={handleClearSubmissionsClick}
                 className="btn-action inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -762,11 +816,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <tr>
                   <th className="py-2.5 px-3 font-semibold text-center w-12">No</th>
                   <th className="py-2.5 px-3 font-semibold w-36">Waktu Ujian</th>
-                  <th className="py-2.5 px-3 font-semibold">Nama Siswa</th>
+                  <th className="py-2.5 px-3 font-semibold">
+                    <span>Nama Siswa</span>
+                    <span className="block text-[10px] font-normal text-sky-200">
+                      (Klik nama untuk reset 1 siswa)
+                    </span>
+                  </th>
                   <th className="py-2.5 px-3 font-semibold w-24">Kelas</th>
                   <th className="py-2.5 px-3 font-semibold text-center w-24">Nilai HOTS</th>
                   <th className="py-2.5 px-3 font-semibold">Rincian Poin Soal</th>
-                  <th className="py-2.5 px-3 font-semibold text-center w-20">Aksi</th>
+                  <th className="py-2.5 px-3 font-semibold text-center w-28">Aksi</th>
                 </tr>
               </thead>
               <tbody id="rekapTableBody" className="divide-y divide-slate-200">
@@ -791,8 +850,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
                         {row.timestamp}
                       </td>
-                      <td className="py-2.5 px-3 font-bold text-slate-900">
-                        {row.nama}
+                      <td className="py-2.5 px-3">
+                        <button
+                          type="button"
+                          onClick={() => setStudentToReset(row)}
+                          className="group text-left font-bold text-slate-900 hover:text-rose-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer p-1 -m-1 rounded-md hover:bg-rose-50/80"
+                          title={`Klik untuk reset ujian siswa ${row.nama} agar dapat mengisi ulang`}
+                        >
+                          <span className="group-hover:underline underline-offset-2">{row.nama}</span>
+                          <RotateCcw className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-600 opacity-60 group-hover:opacity-100 transition-all shrink-0" />
+                        </button>
                       </td>
                       <td className="py-2.5 px-3">
                         <span className="inline-block px-2 py-0.5 rounded bg-sky-50 text-sky-800 font-semibold border border-sky-200 text-[11px]">
@@ -816,15 +883,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         {row.rincian || '-'}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedSubmission(row)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-sky-100 text-sky-700 text-[11px] font-semibold transition-colors cursor-pointer"
-                          title="Lihat Jawaban Lengkap Siswa"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Detail</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSubmission(row)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-sky-100 text-sky-700 text-[11px] font-semibold transition-colors cursor-pointer"
+                            title="Lihat Jawaban Lengkap Siswa"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Detail</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStudentToReset(row)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-semibold transition-colors cursor-pointer border border-rose-200"
+                            title={`Reset hasil ujian siswa ${row.nama} agar dapat mengisi ulang`}
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Reset</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1421,6 +1499,258 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: KONFIRMASI RESET SEMUA REKAP                                 */}
+      {/* ==================================================================== */}
+      {isConfirmClearAllOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <div className="p-3 bg-rose-100 rounded-full shrink-0">
+                <Trash2 className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Reset Semua Rekap Nilai?
+                </h3>
+                <p className="text-xs text-rose-600 font-medium">
+                  Tindakan ini akan mengosongkan seluruh data ujian
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-900 mb-5 space-y-2">
+              <p>
+                Anda akan menghapus seluruh data rekap nilai ujian (<b>{submissions.length} siswa</b>) dari server dan penyimpanan perangkat.
+              </p>
+              <p className="font-semibold">
+                Setelah direset, semua siswa akan diperbolehkan untuk mengisi dan mengirimkan lembar ujian kembali dari awal.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsConfirmClearAllOpen(false)}
+                disabled={isClearing}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteClearAll}
+                disabled={isClearing}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:bg-slate-400"
+              >
+                {isClearing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Mereset Data...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Ya, Hapus Semua Rekap</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: KONFIRMASI RESET 1 SISWA (UJIAN ULANG)                       */}
+      {/* ==================================================================== */}
+      {studentToReset && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative">
+            <div className="flex items-center gap-3 text-amber-600 mb-4">
+              <div className="p-3 bg-amber-100 rounded-full text-amber-700 shrink-0">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Reset Ujian Siswa (Ujian Ulang)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Izinkan siswa ini untuk mengerjakan kembali
+                </p>
+              </div>
+            </div>
+
+            {/* Student Info Card */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mb-4 text-xs space-y-2">
+              <div className="flex justify-between items-center border-b border-slate-200/60 pb-1.5">
+                <span className="text-slate-500">Nama Siswa:</span>
+                <span className="font-bold text-slate-900 text-sm">{studentToReset.nama}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-slate-200/60 pb-1.5">
+                <span className="text-slate-500">Kelas:</span>
+                <span className="font-semibold text-sky-800">{studentToReset.kelas}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-slate-200/60 pb-1.5">
+                <span className="text-slate-500">Waktu Pengumpulan:</span>
+                <span className="text-slate-700 font-mono text-[11px]">{studentToReset.timestamp}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Nilai Saat Ini:</span>
+                <span className="font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-900">
+                  {studentToReset.nilai} / 100
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900 mb-5 space-y-1.5">
+              <p className="font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                Konfirmasi Reset Rekap Ujian
+              </p>
+              <p className="text-[11px] leading-relaxed text-amber-800">
+                Data jawaban dan nilai atas nama <b>{studentToReset.nama}</b> akan dihapus dari server. Siswa ini akan langsung dapat membuka kembali halaman ujian dan mengirimkan jawaban baru.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setStudentToReset(null)}
+                disabled={isClearing}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteResetStudent}
+                disabled={isClearing}
+                className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:bg-slate-400"
+              >
+                {isClearing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Mereset Siswa...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Ya, Reset Siswa Ini</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: HAPUS SISWA DARI ROSTER                                       */}
+      {/* ==================================================================== */}
+      {studentToDeleteFromRoster && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative">
+            <div className="flex items-center gap-3 text-rose-600 mb-4">
+              <div className="p-3 bg-rose-100 rounded-full shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Hapus Siswa dari Roster?
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Menghapus siswa dari daftar absensi ujian
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-5 text-xs text-slate-700">
+              Apakah Anda yakin ingin menghapus siswa <b>{studentToDeleteFromRoster.name}</b> ({studentToDeleteFromRoster.kelas}) dari daftar roster kelas?
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setStudentToDeleteFromRoster(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeleteStudent}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus Siswa</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: RESET KE ROSTER DEFAULT                                       */}
+      {/* ==================================================================== */}
+      {isResetRosterModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative">
+            <div className="flex items-center gap-3 text-amber-600 mb-4">
+              <div className="p-3 bg-amber-100 rounded-full shrink-0">
+                <RotateCcw className="w-6 h-6 text-amber-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Kembalikan Roster Bawaan?
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Reset ke 75 siswa awal SMK XII TKJ (1-5)
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900 mb-5">
+              Roster akan dikembalikan ke daftar 75 siswa bawaan dengan nomor NISN lengkap. Perubahan kustom yang belum diekspor akan ditimpa.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsResetRosterModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteResetDefaultRoster}
+                className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Ya, Kembalikan Bawaan</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* FLOATING SUCCESS TOAST NOTIFICATION                                  */}
+      {/* ==================================================================== */}
+      {successToast && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-medium border border-slate-700 max-w-md">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span className="flex-1 leading-snug">{successToast}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessToast(null)}
+            className="text-slate-400 hover:text-white p-1 rounded transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>

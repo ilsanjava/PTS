@@ -59,10 +59,13 @@ export const StudentResultModal: React.FC<StudentResultModalProps> = ({
             <Award className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-bold text-slate-900">
-            Hasil Evaluasi Ujian HOTS QoS
+            Hasil Evaluasi PTS PKPJ TJKT SMKN 10 Garut
           </h2>
           <p className="text-sm font-medium text-slate-600 mt-1">
             Siswa: <span className="font-bold text-slate-900">{studentName}</span> ({studentClass})
+          </p>
+          <p className="text-xs text-emerald-700 font-semibold mt-1.5 bg-emerald-50 border border-emerald-200 inline-block px-3 py-1 rounded-full">
+            Jawaban telah terkirim & formulir isian telah otomatis dikosongkan kembali
           </p>
         </div>
 

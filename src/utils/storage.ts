@@ -62,6 +62,25 @@ export function clearAllSubmissions(): void {
   localStorage.removeItem(STORAGE_REKAP);
 }
 
+export function deleteStoredSubmission(params: { id?: string; nama: string; kelas: string }): void {
+  try {
+    const list = getStoredSubmissions();
+    const updated = list.filter((s) => {
+      if (params.id && s.id && s.id === params.id) return false;
+      if (
+        s.nama.trim().toLowerCase() === params.nama.trim().toLowerCase() &&
+        s.kelas.trim().toLowerCase() === params.kelas.trim().toLowerCase()
+      ) {
+        return false;
+      }
+      return true;
+    });
+    localStorage.setItem(STORAGE_REKAP, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Failed to delete stored submission', e);
+  }
+}
+
 export function getDraftAnswers(): Record<number, string> {
   try {
     const raw = localStorage.getItem(STORAGE_DRAFT);
@@ -146,23 +165,41 @@ export async function fetchSubmissionsFromServer(): Promise<ExamSubmission[]> {
   return localList;
 }
 
-export async function saveSubmissionToServer(submission: ExamSubmission): Promise<boolean> {
-  // Always save locally first
-  saveSubmission(submission);
-
+export async function saveSubmissionToServer(submission: ExamSubmission): Promise<{
+  success: boolean;
+  alreadySubmitted?: boolean;
+  message?: string;
+}> {
   try {
     const res = await fetch('/api/submissions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(submission),
     });
-    if (res.ok) {
-      return true;
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.status === 409 || data.alreadySubmitted) {
+      return {
+        success: false,
+        alreadySubmitted: true,
+        message: data.message || 'Siswa ini sudah pernah mengisi ujian!',
+      };
+    }
+
+    if (res.ok && data.success) {
+      // Save locally only after successful server save
+      saveSubmission(data.submission || submission);
+      return { success: true };
     }
   } catch (err) {
-    console.warn('Failed to post submission to server:', err);
+    console.warn('Failed to post submission to server, saving locally:', err);
+    saveSubmission(submission);
+    return { success: true };
   }
-  return false;
+
+  saveSubmission(submission);
+  return { success: true };
 }
 
 export async function syncSubmissionsToServer(submissions: ExamSubmission[]): Promise<ExamSubmission[]> {
@@ -187,12 +224,36 @@ export async function syncSubmissionsToServer(submissions: ExamSubmission[]): Pr
   return submissions;
 }
 
-export async function clearAllSubmissionsServer(): Promise<void> {
+export async function clearAllSubmissionsServer(): Promise<boolean> {
   clearAllSubmissions();
   try {
-    await fetch('/api/submissions', { method: 'DELETE' });
+    const res = await fetch('/api/submissions', { method: 'DELETE' });
+    return res.ok;
   } catch (err) {
     console.warn('Failed to clear submissions on server:', err);
+    return false;
+  }
+}
+
+export async function deleteSubmissionFromServer(params: {
+  id?: string;
+  nama: string;
+  kelas: string;
+}): Promise<boolean> {
+  deleteStoredSubmission(params);
+  try {
+    const query = new URLSearchParams();
+    if (params.id) query.append('id', params.id);
+    query.append('nama', params.nama);
+    query.append('kelas', params.kelas);
+
+    const res = await fetch(`/api/submissions/${params.id || 'single'}?${query.toString()}`, {
+      method: 'DELETE',
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Failed to delete submission from server:', err);
+    return false;
   }
 }
 

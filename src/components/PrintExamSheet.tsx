@@ -21,13 +21,16 @@ export const PrintExamSheet: React.FC<PrintExamSheetProps> = ({
       {/* School Header */}
       <div className="text-center border-b-2 border-black pb-3 mb-4">
         <h3 className="text-sm font-bold uppercase tracking-wider">
-          PEMERINTAH DAERAH PROVINSI • DINAS PENDIDIKAN
+          PEMERINTAH DAERAH PROVINSI JAWA BARAT • DINAS PENDIDIKAN
         </h3>
         <h2 className="text-lg font-black uppercase tracking-wide">
-          SEKOLAH MENENGAH KEJURUAN (SMK) TEKNIK KOMPUTER DAN JARINGAN
+          SMK NEGERI 10 GARUT
         </h2>
-        <p className="text-xs italic">
-          ASESMEN KOMPETENSI KEAHLIAN (AKK) / UJIAN ESEI HOTS MIKROTIK QoS
+        <p className="text-xs font-bold uppercase">
+          PROGRAM KEAHLIAN TEKNIK JARINGAN KOMPUTER & TELEKOMUNIKASI (TJKT)
+        </p>
+        <p className="text-xs italic font-bold">
+          PENILAIAN TENGAH SEMESTER (PTS) PKPJ TJKT SMKN 10 GARUT
         </p>
         <p className="text-xs">
           Tahun Pelajaran 2024/2025 • Tingkat XII TKJ (1 - 5) • Waktu: 90 Menit

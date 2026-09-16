@@ -27,14 +27,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold text-slate-900 tracking-tight">
-                Portal Ujian HOTS MikroTik QoS
+                PTS PKPJ TJKT SMKN 10 Garut
               </h1>
               <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-sky-100 text-sky-800 border border-sky-200">
                 XII TKJ 1 - 5
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
-              SMK Teknik Komputer & Jaringan • Kurikulum Merdeka
+              SMKN 10 Garut • Teknik Jaringan Komputer & Telekomunikasi (TJKT)
             </p>
           </div>
         </div>
