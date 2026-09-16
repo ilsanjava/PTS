@@ -11,6 +11,8 @@ export interface QuestionRubric {
 }
 
 export interface RosterItem {
+  no?: number | string;
+  nisn?: string;
   nama: string;
   kelas: string;
 }

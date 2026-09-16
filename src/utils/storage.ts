@@ -98,6 +98,134 @@ export function saveStudentIdentity(identity: { nama: string; kelas: string }): 
   } catch {}
 }
 
+export async function fetchSubmissionsFromServer(): Promise<ExamSubmission[]> {
+  const localList = getStoredSubmissions();
+
+  try {
+    const res = await fetch('/api/submissions');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.submissions)) {
+        const serverList: ExamSubmission[] = data.submissions;
+
+        // Check if there are local submissions not yet on server
+        const serverIds = new Set(serverList.map((s) => s.id));
+        const missingOnServer = localList.filter((s) => !serverIds.has(s.id));
+
+        if (missingOnServer.length > 0) {
+          // Sync them to the server in the background
+          syncSubmissionsToServer(missingOnServer).catch((e) =>
+            console.warn('Background sync error:', e)
+          );
+        }
+
+        // Merge both, preferring server list with newest first
+        const allIds = new Set<string>();
+        const merged: ExamSubmission[] = [];
+
+        for (const item of [...serverList, ...localList]) {
+          const key = item.id || `${item.nama}-${item.kelas}-${item.timestamp}`;
+          if (!allIds.has(key)) {
+            allIds.add(key);
+            merged.push(item);
+          }
+        }
+
+        // Cache back to localStorage
+        try {
+          localStorage.setItem(STORAGE_REKAP, JSON.stringify(merged));
+        } catch {}
+
+        return merged;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch submissions from server, using local data:', err);
+  }
+
+  return localList;
+}
+
+export async function saveSubmissionToServer(submission: ExamSubmission): Promise<boolean> {
+  // Always save locally first
+  saveSubmission(submission);
+
+  try {
+    const res = await fetch('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(submission),
+    });
+    if (res.ok) {
+      return true;
+    }
+  } catch (err) {
+    console.warn('Failed to post submission to server:', err);
+  }
+  return false;
+}
+
+export async function syncSubmissionsToServer(submissions: ExamSubmission[]): Promise<ExamSubmission[]> {
+  try {
+    const res = await fetch('/api/submissions/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ submissions }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.submissions)) {
+        try {
+          localStorage.setItem(STORAGE_REKAP, JSON.stringify(data.submissions));
+        } catch {}
+        return data.submissions;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to sync submissions to server:', err);
+  }
+  return submissions;
+}
+
+export async function clearAllSubmissionsServer(): Promise<void> {
+  clearAllSubmissions();
+  try {
+    await fetch('/api/submissions', { method: 'DELETE' });
+  } catch (err) {
+    console.warn('Failed to clear submissions on server:', err);
+  }
+}
+
+export async function fetchRosterFromServer(): Promise<RosterItem[]> {
+  const localRoster = getStoredRoster();
+  try {
+    const res = await fetch('/api/roster');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.roster) && data.roster.length > 0) {
+        saveRoster(data.roster);
+        return data.roster;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch roster from server:', err);
+  }
+  return localRoster;
+}
+
+export async function saveRosterToServer(roster: RosterItem[]): Promise<void> {
+  saveRoster(roster);
+  try {
+    await fetch('/api/roster', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roster }),
+    });
+  } catch (err) {
+    console.warn('Failed to save roster to server:', err);
+  }
+}
+
 export async function sendToGoogleSheets(payload: {
   timestamp: string;
   nama: string;

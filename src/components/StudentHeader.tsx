@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Users, BookOpen, Clock, AlertCircle } from 'lucide-react';
+import { User, Users, BookOpen, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { RosterItem } from '../types';
 
 interface StudentHeaderProps {
@@ -21,6 +21,9 @@ export const StudentHeader: React.FC<StudentHeaderProps> = ({
 }) => {
   // Filter roster by selected class
   const classStudents = roster.filter((r) => r.kelas === selectedClass);
+  const matchedStudent = classStudents.find(
+    (s) => s.nama.toLowerCase() === studentName.trim().toLowerCase()
+  );
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 sm:p-6 shadow-xs mb-6">
@@ -98,12 +101,23 @@ export const StudentHeader: React.FC<StudentHeaderProps> = ({
           />
           <datalist id="siswaDatalist">
             {classStudents.map((s, idx) => (
-              <option key={`${s.nama}-${idx}`} value={s.nama} />
+              <option
+                key={`${s.nama}-${idx}`}
+                value={s.nama}
+                label={s.nisn ? `NISN: ${s.nisn}` : undefined}
+              />
             ))}
           </datalist>
-          <p className="text-xs text-slate-400 mt-1">
-            Pilih dari daftar nama atau ketik nama lengkap sesuai presensi kelas.
-          </p>
+          {matchedStudent?.nisn ? (
+            <p className="text-xs text-emerald-700 font-semibold mt-1.5 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>NISN Terverifikasi: <strong className="font-mono bg-emerald-100/70 px-1.5 py-0.5 rounded text-emerald-800">{matchedStudent.nisn}</strong></span>
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400 mt-1">
+              Pilih dari daftar nama atau ketik nama lengkap sesuai presensi kelas.
+            </p>
+          )}
         </div>
       </div>
 

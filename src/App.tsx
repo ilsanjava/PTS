@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { StudentHeader } from './components/StudentHeader';
 import { QuestionCard } from './components/QuestionCard';
@@ -22,6 +22,12 @@ import {
   saveStudentIdentity,
   sendToGoogleSheets,
   GOOGLE_SCRIPT_URL,
+  fetchSubmissionsFromServer,
+  saveSubmissionToServer,
+  syncSubmissionsToServer,
+  clearAllSubmissionsServer,
+  fetchRosterFromServer,
+  saveRosterToServer,
 } from './utils/storage';
 import { ExamSubmission, RosterItem } from './types';
 import { Send, CheckCircle2, AlertCircle, RefreshCw, Printer } from 'lucide-react';
@@ -43,12 +49,15 @@ export default function App() {
 
   // Statuses
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdatedTime, setLastUpdatedTime] = useState<string>('');
   const [googleSheetsStatus, setGoogleSheetsStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  // Load initial persistent storage
+  // Load initial persistent storage (Local + Server)
   useEffect(() => {
+    // 1. Instant local load
     const loadedRoster = getStoredRoster();
     setRoster(loadedRoster);
 
@@ -61,6 +70,68 @@ export default function App() {
     const id = getSavedStudentIdentity();
     if (id.nama) setStudentName(id.nama);
     if (id.kelas) setSelectedClass(id.kelas);
+
+    // 2. Fetch shared data from server
+    fetchRosterFromServer().then((srvRoster) => {
+      if (srvRoster && srvRoster.length > 0) {
+        setRoster(srvRoster);
+      }
+    });
+
+    fetchSubmissionsFromServer().then((srvSubs) => {
+      if (srvSubs && srvSubs.length >= 0) {
+        setSubmissions(srvSubs);
+        setLastUpdatedTime(new Date().toLocaleTimeString('id-ID'));
+      }
+    });
+  }, []);
+
+  // Periodic polling when teacher is logged in to see student submissions in real time
+  useEffect(() => {
+    if (!isTeacherLoggedIn) return;
+
+    // Immediate initial sync
+    fetchSubmissionsFromServer().then((subs) => {
+      setSubmissions(subs);
+      setLastUpdatedTime(new Date().toLocaleTimeString('id-ID'));
+    });
+
+    // Poll every 5 seconds
+    const interval = setInterval(async () => {
+      try {
+        const freshSubs = await fetchSubmissionsFromServer();
+        setSubmissions(freshSubs);
+        setLastUpdatedTime(new Date().toLocaleTimeString('id-ID'));
+      } catch (e) {
+        console.warn('Auto-poll submissions error:', e);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isTeacherLoggedIn]);
+
+  // Manual refresh handler for teacher
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const freshSubs = await fetchSubmissionsFromServer();
+      setSubmissions(freshSubs);
+      setLastUpdatedTime(new Date().toLocaleTimeString('id-ID'));
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  // Batch import submissions handler (e.g. from Google Sheet CSV or pasted rows)
+  const handleImportSubmissions = useCallback(async (newSubs: ExamSubmission[]) => {
+    setIsRefreshing(true);
+    try {
+      const updated = await syncSubmissionsToServer(newSubs);
+      setSubmissions(updated);
+      setLastUpdatedTime(new Date().toLocaleTimeString('id-ID'));
+    } finally {
+      setIsRefreshing(false);
+    }
   }, []);
 
   // Sync draft answers to localStorage
@@ -84,12 +155,12 @@ export default function App() {
   // Roster update by teacher
   const handleRosterUpdate = (newRoster: RosterItem[]) => {
     setRoster(newRoster);
-    saveRoster(newRoster);
+    saveRosterToServer(newRoster);
   };
 
   // Clear submissions
   const handleClearSubmissions = () => {
-    clearAllSubmissions();
+    clearAllSubmissionsServer();
     setSubmissions([]);
   };
 
@@ -119,7 +190,7 @@ export default function App() {
     setEvaluationResult(evalRes);
 
     const submissionPayload: ExamSubmission = {
-      id: `sub-${Date.now()}`,
+      id: `sub-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       timestamp: new Date().toLocaleString('id-ID'),
       nama: trimmedName,
       kelas: selectedClass,
@@ -129,8 +200,8 @@ export default function App() {
       syncedToGoogleSheets: false,
     };
 
-    // Save to local storage
-    saveSubmission(submissionPayload);
+    // 1. Immediately save to central server and local backup
+    saveSubmissionToServer(submissionPayload);
     setSubmissions((prev) => [submissionPayload, ...prev]);
 
     setHasSubmitted(true);
@@ -139,6 +210,7 @@ export default function App() {
     setIsSubmitting(true);
 
     try {
+      // 2. Send to Google Sheets Apps Script
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
@@ -155,7 +227,6 @@ export default function App() {
       });
 
       setGoogleSheetsStatus('success');
-      // Update local flag
       submissionPayload.syncedToGoogleSheets = true;
     } catch (err) {
       console.error('Gagal mengirim ke Google Sheets:', err);
@@ -192,6 +263,10 @@ export default function App() {
             onRosterUpdate={handleRosterUpdate}
             onClearSubmissions={handleClearSubmissions}
             onLogout={() => setIsTeacherLoggedIn(false)}
+            onRefresh={handleRefresh}
+            onImportSubmissions={handleImportSubmissions}
+            isRefreshing={isRefreshing}
+            lastUpdatedTime={lastUpdatedTime}
           />
         )}
 
@@ -234,7 +309,7 @@ export default function App() {
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>Mengirim Jawaban ke Google Sheets...</span>
+                  <span>Mengirim Jawaban ke Server & Google Sheets...</span>
                 </>
               ) : (
                 <>
@@ -263,7 +338,7 @@ export default function App() {
             </p>
             <p className="text-xs sm:text-sm text-emerald-700 font-bold mb-3 flex items-center justify-center gap-1.5">
               <CheckCircle2 className="w-4 h-4" />
-              ✔ Jawaban berhasil tersimpan dan dikirim ke Google Sheets.
+              ✔ Jawaban berhasil tersimpan ke rekap server dan terkirim ke Google Sheets.
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
@@ -316,6 +391,7 @@ export default function App() {
       <PrintExamSheet
         studentName={studentName}
         studentClass={selectedClass}
+        studentNisn={roster.find((r) => r.nama.toLowerCase() === studentName.trim().toLowerCase())?.nisn}
         answers={answers}
         totalScore={evaluationResult?.totalScore}
       />

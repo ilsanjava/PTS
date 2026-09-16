@@ -4,6 +4,7 @@ import { HOTS_QUESTIONS } from '../data/questions';
 interface PrintExamSheetProps {
   studentName: string;
   studentClass: string;
+  studentNisn?: string;
   answers: Record<number, string>;
   totalScore?: number;
 }
@@ -11,6 +12,7 @@ interface PrintExamSheetProps {
 export const PrintExamSheet: React.FC<PrintExamSheetProps> = ({
   studentName,
   studentClass,
+  studentNisn,
   answers,
   totalScore,
 }) => {
@@ -36,6 +38,7 @@ export const PrintExamSheet: React.FC<PrintExamSheetProps> = ({
       <div className="border border-black p-3 mb-5 text-xs grid grid-cols-2 gap-2">
         <div>
           <p><strong>Nama Siswa:</strong> {studentName || '................................................................'}</p>
+          <p className="mt-1"><strong>NISN:</strong> {studentNisn || '................................'}</p>
           <p className="mt-1"><strong>Kelas:</strong> {studentClass || 'XII TKJ ......'}</p>
         </div>
         <div>
