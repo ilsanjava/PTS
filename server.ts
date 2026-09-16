@@ -94,11 +94,34 @@ app.post('/api/submissions', (req, res) => {
       return res.status(400).json({ success: false, message: 'Data submission tidak lengkap.' });
     }
 
+    const trimmedNama = String(submission.nama).trim();
+    const trimmedKelas = String(submission.kelas).trim();
+
+    const current = readSubmissions();
+
+    // 1 Student = 1 Submission only rule
+    const existing = current.find(
+      (s) =>
+        s.nama &&
+        s.kelas &&
+        s.nama.toLowerCase().trim() === trimmedNama.toLowerCase() &&
+        s.kelas.toLowerCase().trim() === trimmedKelas.toLowerCase()
+    );
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        alreadySubmitted: true,
+        message: `Siswa "${trimmedNama}" (${trimmedKelas}) sudah pernah mengirimkan jawaban ujian PTS PKPJ TJKT SMKN 10 Garut pada ${existing.timestamp}. Setiap siswa hanya diperbolehkan mengisi ujian 1 kali.`,
+        existingSubmission: existing,
+      });
+    }
+
     const item = {
       id: submission.id || `sub-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       timestamp: submission.timestamp || new Date().toLocaleString('id-ID'),
-      nama: String(submission.nama).trim(),
-      kelas: String(submission.kelas).trim(),
+      nama: trimmedNama,
+      kelas: trimmedKelas,
       nilai: String(submission.nilai || '0'),
       rincian: String(submission.rincian || ''),
       answers: submission.answers || {},
@@ -106,7 +129,6 @@ app.post('/api/submissions', (req, res) => {
       serverReceivedAt: new Date().toISOString(),
     };
 
-    const current = readSubmissions();
     // Prepend newest submission
     current.unshift(item);
     writeSubmissions(current);
@@ -172,6 +194,35 @@ app.delete('/api/submissions', (_req, res) => {
     writeSubmissions([]);
     console.log('[API] Cleared all submissions on server.');
     res.json({ success: true, message: 'Semua rekap berhasil dihapus.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE single submission by ID or query (nama & kelas)
+app.delete('/api/submissions/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nama, kelas } = req.query;
+    const current = readSubmissions();
+    const beforeCount = current.length;
+
+    const updated = current.filter((s) => {
+      if (id && id !== 'single' && s.id === id) return false;
+      if (
+        nama &&
+        kelas &&
+        s.nama.toLowerCase().trim() === String(nama).toLowerCase().trim() &&
+        s.kelas.toLowerCase().trim() === String(kelas).toLowerCase().trim()
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    writeSubmissions(updated);
+    console.log(`[API] Deleted submission (${beforeCount - updated.length} removed). Remaining: ${updated.length}`);
+    res.json({ success: true, message: 'Rekap siswa berhasil dihapus', remaining: updated.length });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

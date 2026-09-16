@@ -1,6 +1,6 @@
 {
-  "name": "Portal Ujian HOTS MikroTik QoS - XII TKJ",
-  "description": "Portal ujian esei Higher Order Thinking Skills (HOTS) MikroTik QoS untuk kelas XII TKJ dengan evaluasi otomatis, integrasi roster siswa, dan panel guru.",
+  "name": "PTS PKPJ TJKT SMKN 10 Garut",
+  "description": "Portal Ujian PTS PKPJ TJKT SMKN 10 Garut untuk kelas XII TKJ dengan evaluasi otomatis, integrasi roster siswa, dan panel guru.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
