@@ -46,7 +46,7 @@ export const StudentHeader: React.FC<StudentHeaderProps> = ({
           PTS PKPJ TJKT SMKN 10 Garut
         </h2>
         <p className="text-sm text-slate-500 mt-1 max-w-xl mx-auto">
-          Penilaian Tengah Semester • Pengelolaan Komputer Jaringan & Telekomunikasi (PKPJ)
+          Penilaian Tengah Semester • Pemasangan dan Konfigurasi Perangkat Jaringan (PKPJ)
         </p>
 
         {/* Badges metadata */}

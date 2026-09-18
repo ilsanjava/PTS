@@ -45,7 +45,7 @@ export const PrintExamSheet: React.FC<PrintExamSheetProps> = ({
           <p className="mt-1"><strong>Kelas:</strong> {studentClass || 'XII TKJ ......'}</p>
         </div>
         <div>
-          <p><strong>Mata Pelajaran:</strong> Administrasi Infrastruktur Jaringan (AIJ / QoS)</p>
+          <p><strong>Mata Pelajaran:</strong> Pemasangan dan Konfigurasi Perangkat Jaringan (PKPJ)</p>
           <p className="mt-1"><strong>Nilai / Paraf:</strong> {totalScore !== undefined ? `${totalScore} / 100` : '............... / ...............'}</p>
         </div>
       </div>
